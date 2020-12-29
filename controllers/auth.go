@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 	"io/ioutil"
 	"log"
@@ -15,17 +16,17 @@ import (
 )
 
 type sidInfo struct {
-	userID  string
-	expires time.Time
+	Token   string    `json:"token" bson:"token"`
+	UserID  string    `json:"userid" bson:"userid"`
+	Expires time.Time `json:"expires" bson:"expires"`
 }
 
 type AuthController struct {
-	db   *mongo.Database
-	sids map[string]sidInfo
+	db *mongo.Database
 }
 
 func NewAuthController(db *mongo.Database) *AuthController {
-	return &AuthController{db, make(map[string]sidInfo)}
+	return &AuthController{db}
 }
 
 func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Request) {
@@ -60,22 +61,30 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 	}
 
 	// replace this user's session token and return the new one to them
-	sessionToken, err := bcrypt.GenerateFromPassword([]byte(uuid.New().String()), 0)
+	tk := []byte(uuid.New().String())
+	tkHash, err := bcrypt.GenerateFromPassword(tk, 0)
 	if err != nil {
 		log.Println("Could not generate hash from UUID/sessionToken", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	si := sidInfo{
-		userID:  u.Email,
-		expires: cookieExpDayFromNow(),
+	exp := cookieExpDayFromNow()
+	filter := bson.M{"userid": dbUser.Id}
+	repl, _ := bson.Marshal(sidInfo{
+		Token:   string(tkHash),
+		UserID:  u.Email,
+		Expires: exp,
+	})
+	opts := options.Replace().SetUpsert(true)
+	if _, err = a.db.Collection("sessions").ReplaceOne(context.Background(), filter, repl, opts); err != nil {
+		log.Println("Could not save session object to the db", err)
+		// does not fail the request since it's not functionality-breaking
 	}
-	a.sids[string(sessionToken)] = si
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
-		Value:    string(sessionToken),
-		Expires:  si.expires,
+		Value:    string(tk),
+		Expires:  exp,
 		HttpOnly: true,
 	})
 	w.WriteHeader(http.StatusFound)
