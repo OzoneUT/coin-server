@@ -11,6 +11,7 @@ import (
 )
 
 var ac *controllers.AuthController
+var anc *controllers.AccountController
 
 func init() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -23,12 +24,15 @@ func init() {
 	}
 	db := c.Database("coin-dev")
 	ac = controllers.NewAuthController(db)
+	anc = controllers.NewAccountController(db)
 }
 
 func main() {
 	http.Handle("/favicon.ico", http.NotFoundHandler())
+
 	http.HandleFunc("/login", ac.LoginWithCredentials)
 	http.HandleFunc("/register", ac.Register)
+	http.HandleFunc("/account", anc.AccessAcount)
 
 	log.Println("Listening on port 8080.")
 	log.Fatal(http.ListenAndServe(":8080", nil))

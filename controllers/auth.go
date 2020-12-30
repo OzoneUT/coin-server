@@ -4,7 +4,6 @@ import (
 	"coin-server/models"
 	"context"
 	"encoding/json"
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -61,7 +60,7 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 	}
 
 	// replace this user's session token and return the new one to them
-	tk := []byte(uuid.New().String())
+	tk := []byte("TODO") //TODO
 	tkHash, err := bcrypt.GenerateFromPassword(tk, 0)
 	if err != nil {
 		log.Println("Could not generate hash from UUID/sessionToken", err)
