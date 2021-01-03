@@ -26,7 +26,7 @@ func NewAccountController(db *mongo.Database, cache *redis.Client) *AccountContr
 
 // AccessAccount handles the /account route as a test for cookie checks
 func (c AccountController) AccessAccount(w http.ResponseWriter, r *http.Request) {
-	// check if client is sent an authorized token
+	// get token metadata
 	accessDetails, err := ExtractTokenMetadata(r)
 	if err != nil {
 		log.Println("Could not extract bearer token's metadata...", err)
