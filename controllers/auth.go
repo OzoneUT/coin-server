@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
 	"github.com/go-redis/redis/v7"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -27,7 +28,7 @@ func NewAuthController(db *mongo.Database, cache *redis.Client) *AuthController 
 	return &AuthController{db, cache}
 }
 
-// LoginWithCredentials handles /login where the user passes in their username
+// LoginWithCredentials handles /auth/login where the user passes in their username
 // and password in the request body. If they check out, we create a new access
 // and refresh token and send it back with the response's Authorization header
 func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +79,7 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 	// send the request with the authorization tokens
 	result, err := json.Marshal(outData)
 	if err != nil {
-		log.Println("Could not encode outbound data into writer w:", err)
+		log.Println("Could not encode outbound data into writer:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -86,8 +87,8 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 	w.Write(result)
 }
 
-// Logout handles the /logout route and invalidates the associated user's session entry in
-// the Redis cache
+// Logout handles the /auth/logout route and invalidates the associated user's
+// session entry in the Redis cache
 func (a AuthController) Logout(w http.ResponseWriter, r *http.Request) {
 	token, err := ExtractTokenMetadata(r)
 	if err != nil {
@@ -101,10 +102,10 @@ func (a AuthController) Logout(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	log.Println(token.UserID + "'s session removed from cache")
+	log.Println("one session removed from cache for user", token.UserID)
 }
 
-// Register handles the /register route to add a user to the db
+// Register handles the /auth/register route to add a user to the db
 func (a AuthController) Register(writer http.ResponseWriter, request *http.Request) {
 	// read the request body into u
 	u := models.User{}
@@ -140,4 +141,51 @@ func (a AuthController) Register(writer http.ResponseWriter, request *http.Reque
 	}
 	log.Println("inserted 1 user: ", result.InsertedID)
 	writer.WriteHeader(http.StatusCreated)
+}
+
+// RefreshAuth handles the /auth/refresh route by doing the following:
+// 1. checks the authorization header for a valid, unexpired refresh token
+// 2. generates a new pair of access and refresh tokens, replacing the old
+// refresh token in the cache, effectively making refresh tokens one-time use
+// which *appear* non-expiring to users who visit regularly
+// 3. returns the new pair of tokens to the client
+func (a AuthController) RefreshAuth(w http.ResponseWriter, r *http.Request) {
+	token, err := TokenValid(r)
+	if err != nil {
+		log.Println("Could not verify refresh token:", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		refreshID := claims["refresh_id"].(string)
+		userID := claims["user_id"].(string)
+		if err := DeleteCachedAuth(a.cache, refreshID); err != nil {
+			log.Println("Could not delete refresh token:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		newMeta, err := CreateToken(userID)
+		if err != nil {
+			log.Println("Could not create new tokens:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		outData, err := CreateAuth(a.cache, userID, newMeta)
+		if err != nil {
+			log.Println("Could not save new tokens to cache:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		result, err := json.Marshal(outData)
+		if err != nil {
+			log.Println("Could not marshal new tokens:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Write(result)
+	} else {
+		log.Println("Could not process the refresh token's claims: token.valid=", token.Valid, claims)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		return
+	}
 }

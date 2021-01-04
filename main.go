@@ -28,14 +28,15 @@ func main() {
 	
 	// simple routes
 	http.Handle("/favicon.ico", http.NotFoundHandler())
-	http.HandleFunc("/login", authCtl.LoginWithCredentials)
-	http.HandleFunc("/register", authCtl.Register)
+	http.HandleFunc("/auth/login", authCtl.LoginWithCredentials)
+	http.HandleFunc("/auth/register", authCtl.Register)
+	http.HandleFunc("/auth/refresh", authCtl.RefreshAuth)
 	
 	// routes with middleware
 	acctHandler := http.HandlerFunc(acctCtl.AccessAccount)
 	logoutHandler := http.HandlerFunc(authCtl.Logout)
-	http.Handle("/account", middleware.EnsureAuthMW(acctHandler))
-	http.Handle("/logout", middleware.EnsureAuthMW(logoutHandler))
+	http.Handle("/api/account", middleware.EnsureAuthMW(acctHandler))
+	http.Handle("/auth/logout", middleware.EnsureAuthMW(logoutHandler))
 	
 	// finally, start the server
 	addr, found := os.LookupEnv("SERVER_ADDR")

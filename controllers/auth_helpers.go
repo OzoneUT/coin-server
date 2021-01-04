@@ -79,9 +79,9 @@ func ConfirmCachedAuth(cache *redis.Client, details *models.AccessDetails) (stri
 	return cache.Get(details.AccessID).Result()
 }
 
-// DeleteCachedAuth removes session meta associated with the provided tokenID and returns nil 
+// DeleteCachedAuth removes session meta associated with the provided tokenID and returns nil
 // if successful. Otherwise, returns error.
-func DeleteCachedAuth(cache *redis.Client, tokenID string) (error) {
+func DeleteCachedAuth(cache *redis.Client, tokenID string) error {
 	_, err := cache.Del(tokenID).Result()
 	if err != nil {
 		return err
@@ -110,16 +110,16 @@ func ExtractTokenMetadata(r *http.Request) (*models.AccessDetails, error) {
 
 // TokenValid returns nil if the token is valid (unexpired). Also calls VerifyToken
 // to verify the token's signature and integrity first.
-func TokenValid(r *http.Request) error {
+func TokenValid(r *http.Request) (*jwt.Token, error) {
 	token, err := VerifyToken(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// token.Valid field is populated when token is parsed/verified
 	if _, ok := token.Claims.(jwt.Claims); !ok && token.Valid {
-		return err
+		return nil, err
 	}
-	return nil
+	return token, nil
 }
 
 // VerifyToken is a helper function that retreives the extracted token and verifies
@@ -132,12 +132,19 @@ func VerifyToken(r *http.Request) (*jwt.Token, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return []byte(os.Getenv("ACCESS_SECRET")), nil
+		return []byte(getSecret(r.URL.Path)), nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return jwtToken, nil
+}
+
+func getSecret(path string) string {
+	if path == "/auth/refresh" {
+		return os.Getenv("REFRESH_SECRET")
+	}
+	return os.Getenv("ACCESS_SECRET")
 }
 
 // ExtractToken is a helper function that extracts the bearer token from the Authorization
