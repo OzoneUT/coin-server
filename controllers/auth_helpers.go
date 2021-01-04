@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"coin-server/models"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,6 +13,24 @@ import (
 	"github.com/go-redis/redis/v7"
 	uuid "github.com/satori/go.uuid"
 )
+
+// ParseBasicAuthorization is a helper function that parses out the email and password
+// used for basic authentication in the /auth/login handler
+func ParseBasicAuthorization(val string) (usrn string, pwd string, err error) {
+	header := strings.Split(val, " ")
+	if len(header) != 2 {
+		return usrn, pwd, fmt.Errorf("malformed authorization header: %s", header)
+	}
+	bs, err := base64.StdEncoding.DecodeString(header[1])
+	if err != nil {
+		return usrn, pwd, fmt.Errorf("malformed authorization header value: %s %v", header[1], err)
+	}
+	cred := strings.Split(string(bs), ":")
+	if len(cred) != 2 {
+		return usrn, pwd, fmt.Errorf("creds not encoded correctly: %s", bs)
+	}
+	return cred[0], cred[1], nil
+}
 
 // CreateToken is a helper that returns a fully formed AuthToken struct containing the meta
 // data for both Access and Refresh tokens for a given user id

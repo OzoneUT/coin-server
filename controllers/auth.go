@@ -4,9 +4,9 @@ import (
 	"coin-server/models"
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -32,33 +32,25 @@ func NewAuthController(db *mongo.Database, cache *redis.Client) *AuthController 
 // and password in the request body. If they check out, we create a new access
 // and refresh token and send it back with the response's Authorization header
 func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Request) {
-	// read the request body into u
-	u := models.User{}
-	b, err := ioutil.ReadAll(r.Body)
+	usrn, pwd, err := ParseBasicAuthorization(r.Header.Get("Authorization"))
 	if err != nil {
-		log.Println("Couldn't read the request's body:", err)
+		log.Println("Could not parse authorization header successfully:", err)
 		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if err := json.Unmarshal(b, &u); err != nil {
-		log.Println("Could not unmarshal json into struct:", err)
-		log.Println(b)
-		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	// verify credentials from users collection in db
 	dbUser := models.User{}
-	err = a.db.Collection("users").FindOne(context.Background(), bson.M{"_id": u.Email}).Decode(&dbUser)
+	err = a.db.Collection("users").FindOne(context.Background(), bson.M{"_id": usrn}).Decode(&dbUser)
 	if err != nil {
 		log.Println("Could get document using email (id) from request:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	if err = bcrypt.CompareHashAndPassword([]byte(dbUser.Password), []byte(u.Password)); err != nil {
+	if err = bcrypt.CompareHashAndPassword([]byte(dbUser.Password), []byte(pwd)); err != nil {
 		// if err is not nil, the comparison failed.
-		log.Println("Incorrect password for user", u.Email, err)
-		w.WriteHeader(http.StatusNotFound)
+		log.Println("Incorrect password for user", usrn, err)
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 
@@ -109,8 +101,8 @@ func (a AuthController) Logout(w http.ResponseWriter, r *http.Request) {
 func (a AuthController) Register(writer http.ResponseWriter, request *http.Request) {
 	// read the request body into u
 	u := models.User{}
-	err := json.NewDecoder(request.Body).Decode(&u)
-	if err != nil {
+	if err := json.NewDecoder(request.Body).Decode(&u); err != nil || strings.Contains(u.Email, ":") {
+		log.Println("Could not decode the request body into a user struct:", err)
 		writer.WriteHeader(http.StatusBadRequest)
 		return
 	}
