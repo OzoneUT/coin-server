@@ -39,7 +39,7 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// verify credentials from users collection in db
+	// verify credentials from users collection in db, then clear local copy's password field
 	dbUser := models.User{}
 	err = a.db.Collection("users").FindOne(context.Background(), bson.M{"_id": usrn}).Decode(&dbUser)
 	if err != nil {
@@ -53,30 +53,33 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	dbUser.Password = ""
 
 	// replace this user's session token in redis
-	tkMeta, err := CreateToken(dbUser.Id)
+	tkMeta, err := CreateToken(dbUser.ID)
 	if err != nil {
 		log.Println("Could not create an auth token:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	outData, err := CreateAuth(a.cache, dbUser.Id, tkMeta)
+	outData, err := CreateAuth(a.cache, dbUser.ID, tkMeta)
 	if err != nil {
 		log.Println("Could not save the token meta in Redis:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	// send the request with the authorization tokens
-	result, err := json.Marshal(outData)
+	// create and marshal the final outbound struct
+	outUserAuth := models.UserWithAuth{User: dbUser, OutboundToken: *outData}
+	out, err := json.Marshal(outUserAuth)
 	if err != nil {
 		log.Println("Could not encode outbound data into writer:", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	w.Write(result)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
 }
 
 // Logout handles the /auth/logout route and invalidates the associated user's
@@ -114,7 +117,7 @@ func (a AuthController) Register(writer http.ResponseWriter, request *http.Reque
 		writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	u.Id = u.Email
+	u.ID = u.Email
 	u.Password = string(hash)
 	u.Created = time.Now()
 
