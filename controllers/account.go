@@ -3,6 +3,7 @@ package controllers
 import (
 	"coin-server/models"
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -40,7 +41,7 @@ func (c AccountController) AccessAccount(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// look up user by userID in db
+	// look up user by userID in db, decode it into the dbStruct, then encode it into json
 	dbUser := models.User{}
 	rs := c.db.Collection("users").FindOne(context.Background(), bson.M{"_id": userID})
 	if rs.Err() != nil {
@@ -53,7 +54,14 @@ func (c AccountController) AccessAccount(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	dbUser.Password = ""
+	out, err := json.Marshal(dbUser)
+	if err != nil {
+		log.Println("Could not encode outbound data into writer:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
 	// authenticated. return user's data
-	w.Write([]byte("Welcome, " + dbUser.Name + "!"))
+	w.Write(out)
 }

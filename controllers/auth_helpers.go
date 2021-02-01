@@ -36,7 +36,7 @@ func ParseBasicAuthorization(val string) (usrn string, pwd string, err error) {
 // data for both Access and Refresh tokens for a given user id
 func CreateToken(id string) (*models.AuthToken, error) {
 	meta := &models.AuthToken{}
-	meta.AccessExpires = time.Now().Add(time.Minute * 15).Unix()
+	meta.AccessExpires = time.Now().Add(time.Minute * 30).Unix()
 	meta.RefreshExpires = time.Now().Add(time.Hour * 24 * 30).Unix()
 	meta.AccessID = uuid.NewV4().String()
 	meta.RefreshID = uuid.NewV4().String()
