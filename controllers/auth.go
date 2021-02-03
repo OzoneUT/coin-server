@@ -43,7 +43,7 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 	dbUser := models.User{}
 	err = a.db.Collection("users").FindOne(context.Background(), bson.M{"_id": usrn}).Decode(&dbUser)
 	if err != nil {
-		log.Println("Could get document using email (id) from request:", err)
+		log.Println("Could get user using email (id) from request:", err)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
