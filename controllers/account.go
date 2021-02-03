@@ -10,6 +10,7 @@ import (
 	"github.com/go-redis/redis/v7"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // AccountController contains references to data sources needed by this account
@@ -86,14 +87,14 @@ func (c AccountController) SetupAccount(w http.ResponseWriter, r *http.Request) 
 	// extract the Bank data from the request
 	var banks []models.Bank
 	if err := json.NewDecoder(r.Body).Decode(&banks); err != nil {
-		log.Println("Could not decode the request body into a user struct:", err)
+		log.Println("Could not decode the request body into a user struct: ", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	// encode banks into bson, then update the existing user's document with
 	// the new Banks and flag
-	result, err := c.db.Collection("users").UpdateOne(
+	result := c.db.Collection("users").FindOneAndUpdate(
 		context.Background(),
 		bson.M{"_id": userID},
 		bson.D{
@@ -102,26 +103,22 @@ func (c AccountController) SetupAccount(w http.ResponseWriter, r *http.Request) 
 				{Key: "accountSetupComplete", Value: true}},
 			},
 		},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
 	)
-	if err != nil || result.MatchedCount < 1 {
-		log.Println("Couldn't update a user object in db:", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	log.Println("updated", result.ModifiedCount, "user(s) in setupAccount()")
 
-	// get the associated user from the db, decode it into json, and respond to the client
+	// decode the resulting User object and sent it back to the client
 	dbUser := models.User{}
-	err = c.db.Collection("users").FindOne(context.Background(), bson.M{"_id": userID}).Decode(&dbUser)
+	err = result.Decode(&dbUser)
 	if err != nil {
-		log.Println("Could get user using email (id) from request:", err)
+		log.Println("Error updating/decoding dbUser: ", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	log.Println("updated user in setupAccount()")
 	dbUser.Password = ""
 	out, err := json.Marshal(dbUser)
 	if err != nil {
-		log.Println("Couldn't decode dbUser into User struct:", err)
+		log.Println("Couldn't decode dbUser into User struct: ", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
