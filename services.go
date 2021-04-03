@@ -22,7 +22,7 @@ func setupMongoDB() *mongo.Database {
 	if err != nil {
 		log.Fatal(err)
 	}
-	return c.Database("coin-dev")
+	return c.Database("coin")
 }
 
 func setupRedis() *redis.Client {
