@@ -44,7 +44,10 @@ func (c AccountController) AccessAccount(w http.ResponseWriter, r *http.Request)
 
 	// look up user by userID in db, decode it into the dbStruct, then encode it into json
 	dbUser := models.User{}
-	rs := c.db.Collection("users").FindOne(context.Background(), bson.M{"_id": userID})
+	rs := c.db.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"_id": userID},
+		options.FindOne().SetProjection(bson.M{"password": 0}))
 	if rs.Err() != nil {
 		log.Println("Token was authorized but the associated userID is not present in the db", rs.Err())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -55,7 +58,6 @@ func (c AccountController) AccessAccount(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	dbUser.Password = ""
 	out, err := json.Marshal(dbUser)
 	if err != nil {
 		log.Println("Could not encode outbound data into writer:", err)
@@ -67,9 +69,10 @@ func (c AccountController) AccessAccount(w http.ResponseWriter, r *http.Request)
 	w.Write(out)
 }
 
-// SetupAccount handles the /api/setup route to add user's BankInstitutionEntity objects
+// SetupAccount handles the /api/setup route to add user's initial setup amount
 // to the DB and set the accountSetupCompleted flag. Returns the updated User object
 func (c AccountController) SetupAccount(w http.ResponseWriter, r *http.Request) {
+	const key = "setupAmount"
 	// get token metadata and userID from request's Auth header
 	accessDetails, err := ExtractTokenMetadata(r)
 	if err != nil {
@@ -84,10 +87,48 @@ func (c AccountController) SetupAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// extract the Bank data from the request
-	var banks []models.Bank
-	if err := json.NewDecoder(r.Body).Decode(&banks); err != nil {
-		log.Println("Could not decode the request body into a user struct: ", err)
+	// ensure the account has not already been setup
+	dbUser := models.User{}
+	rs := c.db.Collection("users").FindOne(
+		context.Background(),
+		bson.M{"_id": userID},
+		options.FindOne().SetProjection(bson.M{"accountSetupComplete": 1}))
+	if rs.Err() != nil {
+		log.Println("Token was authorized but the associated userID is not present in the db", rs.Err())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if err = rs.Decode(&dbUser); err != nil {
+		log.Println("Could not decode db's bson into user struct", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if dbUser.SetupDone {
+		log.Println("Error: This account has already been setup.")
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	// extract the setupAmount from the request; check that it's a float64
+	var f interface{}
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		log.Println("Could not decode the request body: ", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	var setupAmount float64
+	m := f.(map[string]interface{})
+	if val, present := m[key]; present {
+		switch val.(type) {
+		case float64:
+			setupAmount = val.(float64)
+		default:
+			log.Printf("%v value is not a float64\n", key)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	} else {
+		log.Println("Could not find setupValue in request")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -99,15 +140,15 @@ func (c AccountController) SetupAccount(w http.ResponseWriter, r *http.Request) 
 		bson.M{"_id": userID},
 		bson.D{
 			{Key: "$set", Value: bson.D{
-				{Key: "bankInstitutionEntities", Value: banks},
+				{Key: "setupAmount", Value: setupAmount},
 				{Key: "accountSetupComplete", Value: true}},
 			},
 		},
 		options.FindOneAndUpdate().SetReturnDocument(options.After),
+		options.FindOneAndUpdate().SetProjection(bson.M{"password": 0}),
 	)
 
 	// decode the resulting User object and sent it back to the client
-	dbUser := models.User{}
 	err = result.Decode(&dbUser)
 	if err != nil {
 		log.Println("Error updating/decoding dbUser: ", err)
@@ -115,7 +156,6 @@ func (c AccountController) SetupAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	log.Println("updated user in setupAccount()")
-	dbUser.Password = ""
 	out, err := json.Marshal(dbUser)
 	if err != nil {
 		log.Println("Couldn't decode dbUser into User struct: ", err)
