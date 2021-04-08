@@ -13,7 +13,6 @@ import (
 	"github.com/go-redis/redis/v7"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -42,12 +41,9 @@ func (a AuthController) LoginWithCredentials(w http.ResponseWriter, r *http.Requ
 
 	// verify credentials from users collection in db, then clear local copy's password field
 	dbUser := models.User{}
-	err = a.db.Collection("users").FindOne(
-		context.Background(),
-		bson.M{"_id": usrn},
-		options.FindOne().SetProjection(bson.M{"password": 0})).Decode(&dbUser)
+	err = a.db.Collection("users").FindOne(context.Background(), bson.M{"_id": usrn}).Decode(&dbUser)
 	if err != nil {
-		log.Println("Could get user using email (id) from request:", err)
+		log.Println("Couldn't get user using email (id) from request:", err)
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
